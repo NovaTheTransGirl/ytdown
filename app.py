@@ -1,5 +1,5 @@
 import os
-import yt_dlp
+import subprocess
 from flask import Flask, request, send_file, render_template_string
 
 app = Flask(__name__)
@@ -34,18 +34,21 @@ def index():
     return render_template_string(TEMPLATE)
 
 def download_video(url, format):
-    ydl_opts = {
-        'format': 'bestvideo+bestaudio/best' if format == 'mp4' else 'bestaudio',
-        'outtmpl': f'%(title)s.%(ext)s',
-        'postprocessors': [{
-            'key': 'FFmpegExtractAudio',
-            'preferredcodec': 'mp3',
-            'preferredquality': '320',
-        }] if format == 'mp3' else []
-    }
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        info = ydl.extract_info(url, download=True)
-        return ydl.prepare_filename(info)
+    output_path = "/tmp/%(title)s.%(ext)s"
+    command = [
+        "./yt-dlp", "-f", "bestaudio/best" if format == "mp3" else "bestvideo+bestaudio/best",
+        "--output", output_path
+    ]
+    
+    if format == "mp3":
+        command.extend([
+            "--postprocessor-args", f"-vn -b:a 320k -ffmpeg-location ./ffmpeg"
+        ])
+    
+    subprocess.run(command, check=True)
+    
+    return output_path.replace("%(title)s", "video").replace("%(ext)s", format)
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000)
+    from waitress import serve
+    serve(app, host="0.0.0.0", port=5000)
