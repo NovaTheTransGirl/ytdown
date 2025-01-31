@@ -1,6 +1,7 @@
 import os
 import subprocess
 from flask import Flask, request, send_file, render_template_string
+from PIL import Image
 
 app = Flask(__name__)
 
@@ -8,17 +9,13 @@ TEMPLATE = """
 <!DOCTYPE html>
 <html>
 <head>
-    <title>YouTube Downloader</title>
+    <title>Image to PNG Converter</title>
 </head>
 <body>
-    <h1>YouTube Downloader</h1>
-    <form method="POST">
-        <input type="text" name="url" placeholder="Enter YouTube URL" required>
-        <select name="format">
-            <option value="mp4">MP4 (Best Quality)</option>
-            <option value="mp3">MP3 (Audio Only)</option>
-        </select>
-        <button type="submit">Download</button>
+    <h1>Image to PNG Converter</h1>
+    <form method="POST" enctype="multipart/form-data">
+        <input type="file" name="image" required>
+        <button type="submit">Convert</button>
     </form>
 </body>
 </html>
@@ -27,27 +24,19 @@ TEMPLATE = """
 @app.route('/', methods=['GET', 'POST'])
 def index():
     if request.method == 'POST':
-        url = request.form['url']
-        format = request.form['format']
-        filename = download_video(url, format)
-        return send_file(filename, as_attachment=True)
+        file = request.files['image']
+        if file:
+            filename = convert_to_png(file)
+            return send_file(filename, as_attachment=True)
     return render_template_string(TEMPLATE)
 
-def download_video(url, format):
-    output_path = "/tmp/%(title)s.%(ext)s"
-    command = [
-        "./yt-dlp", "-f", "bestaudio/best" if format == "mp3" else "bestvideo+bestaudio/best",
-        "--output", output_path
-    ]
-    
-    if format == "mp3":
-        command.extend([
-            "--postprocessor-args", f"-vn -b:a 320k -ffmpeg-location ./ffmpeg"
-        ])
-    
-    subprocess.run(command, check=True)
-    
-    return output_path.replace("%(title)s", "video").replace("%(ext)s", format)
+def convert_to_png(file):
+    input_path = f"/tmp/{file.filename}"
+    output_path = f"/tmp/{os.path.splitext(file.filename)[0]}.png"
+    file.save(input_path)
+    image = Image.open(input_path)
+    image.save(output_path, "PNG")
+    return output_path
 
 if __name__ == '__main__':
     from waitress import serve
