@@ -1,12 +1,13 @@
 import os
 import subprocess
-from flask import Flask, request, send_file, render_template_string
+from fastapi import FastAPI, UploadFile, Form
+from fastapi.responses import FileResponse, HTMLResponse
 from PIL import Image
 from colorthief import ColorThief
 
-app = Flask(__name__)
+app = FastAPI()
 
-TEMPLATE_HOME = """
+HTML_TEMPLATE = """
 <!DOCTYPE html>
 <html>
 <head>
@@ -24,15 +25,15 @@ TEMPLATE_HOME = """
 </html>
 """
 
-TEMPLATE_IMAGE_CONVERTER = """
-<!DOCTYPE html>
-<html>
-<head>
-    <title>Image Converter</title>
-</head>
-<body>
+@app.get("/", response_class=HTMLResponse)
+async def home():
+    return HTML_TEMPLATE
+
+@app.get("/imageconverter", response_class=HTMLResponse)
+async def image_converter_page():
+    return """
     <h1>Convert Image to Another Format</h1>
-    <form method="POST" enctype="multipart/form-data">
+    <form method="POST" enctype="multipart/form-data" action="/imageconverter">
         <input type="file" name="image" required>
         <select name="format">
             <option value="png">PNG</option>
@@ -42,35 +43,42 @@ TEMPLATE_IMAGE_CONVERTER = """
         </select>
         <button type="submit">Convert</button>
     </form>
-</body>
-</html>
-"""
+    """
 
-TEMPLATE_COLOR_PICKER = """
-<!DOCTYPE html>
-<html>
-<head>
-    <title>Color Picker</title>
-</head>
-<body>
+@app.post("/imageconverter")
+async def convert_image(image: UploadFile, format: str = Form("png")):
+    input_path = f"/tmp/{image.filename}"
+    output_path = f"/tmp/{os.path.splitext(image.filename)[0]}.{format}"
+    with open(input_path, "wb") as f:
+        f.write(await image.read())
+    img = Image.open(input_path)
+    img.save(output_path, format.upper())
+    return FileResponse(output_path, filename=os.path.basename(output_path))
+
+@app.get("/color-picker", response_class=HTMLResponse)
+async def color_picker_page():
+    return """
     <h1>Upload an Image to Get Colors</h1>
-    <form method="POST" enctype="multipart/form-data">
+    <form method="POST" enctype="multipart/form-data" action="/color-picker">
         <input type="file" name="image" required>
         <button type="submit">Get Colors</button>
     </form>
-</body>
-</html>
-"""
+    """
 
-TEMPLATE_AUDIO_CONVERTER = """
-<!DOCTYPE html>
-<html>
-<head>
-    <title>Audio Converter</title>
-</head>
-<body>
+@app.post("/color-picker")
+async def color_picker(image: UploadFile):
+    input_path = f"/tmp/{image.filename}"
+    with open(input_path, "wb") as f:
+        f.write(await image.read())
+    color_thief = ColorThief(input_path)
+    dominant_color = color_thief.get_color(quality=1)
+    return {"Dominant Color (RGB)": dominant_color}
+
+@app.get("/audioconverter", response_class=HTMLResponse)
+async def audio_converter_page():
+    return """
     <h1>Convert Audio to Another Format</h1>
-    <form method="POST" enctype="multipart/form-data">
+    <form method="POST" enctype="multipart/form-data" action="/audioconverter">
         <input type="file" name="audio" required>
         <select name="format">
             <option value="mp3">MP3</option>
@@ -79,19 +87,22 @@ TEMPLATE_AUDIO_CONVERTER = """
         </select>
         <button type="submit">Convert</button>
     </form>
-</body>
-</html>
-"""
+    """
 
-TEMPLATE_VIDEO_CONVERTER = """
-<!DOCTYPE html>
-<html>
-<head>
-    <title>Video Converter</title>
-</head>
-<body>
+@app.post("/audioconverter")
+async def convert_audio(audio: UploadFile, format: str = Form("mp3")):
+    input_path = f"/tmp/{audio.filename}"
+    output_path = f"/tmp/{os.path.splitext(audio.filename)[0]}.{format}"
+    with open(input_path, "wb") as f:
+        f.write(await audio.read())
+    subprocess.run(["ffmpeg", "-i", input_path, output_path, "-y"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    return FileResponse(output_path, filename=os.path.basename(output_path))
+
+@app.get("/videoconverter", response_class=HTMLResponse)
+async def video_converter_page():
+    return """
     <h1>Convert Video to Another Format</h1>
-    <form method="POST" enctype="multipart/form-data">
+    <form method="POST" enctype="multipart/form-data" action="/videoconverter">
         <input type="file" name="video" required>
         <select name="format">
             <option value="mp4">MP4</option>
@@ -100,78 +111,13 @@ TEMPLATE_VIDEO_CONVERTER = """
         </select>
         <button type="submit">Convert</button>
     </form>
-</body>
-</html>
-"""
+    """
 
-@app.route('/')
-def home():
-    return render_template_string(TEMPLATE_HOME)
-
-@app.route('/imageconverter', methods=['GET', 'POST'])
-def image_converter():
-    if request.method == 'POST':
-        file = request.files['image']
-        file_format = request.form['format']
-        if file:
-            filename = convert_image(file, file_format)
-            return send_file(filename, as_attachment=True)
-    return render_template_string(TEMPLATE_IMAGE_CONVERTER)
-
-def convert_image(file, file_format):
-    input_path = f"/tmp/{file.filename}"
-    output_path = f"/tmp/{os.path.splitext(file.filename)[0]}.{file_format}"
-    file.save(input_path)
-    image = Image.open(input_path)
-    image.save(output_path, file_format.upper())
-    return output_path
-
-@app.route('/color-picker', methods=['GET', 'POST'])
-def color_picker():
-    if request.method == 'POST':
-        file = request.files['image']
-        if file:
-            filename = f"/tmp/{file.filename}"
-            file.save(filename)
-            color_thief = ColorThief(filename)
-            dominant_color = color_thief.get_color(quality=1)
-            return f"Dominant Color: RGB{dominant_color}"
-    return render_template_string(TEMPLATE_COLOR_PICKER)
-
-@app.route('/audioconverter', methods=['GET', 'POST'])
-def audio_converter():
-    if request.method == 'POST':
-        file = request.files['audio']
-        file_format = request.form['format']
-        if file:
-            filename = convert_audio(file, file_format)
-            return send_file(filename, as_attachment=True)
-    return render_template_string(TEMPLATE_AUDIO_CONVERTER)
-
-def convert_audio(file, file_format):
-    input_path = f"/tmp/{file.filename}"
-    output_path = f"/tmp/{os.path.splitext(file.filename)[0]}.{file_format}"
-    file.save(input_path)
+@app.post("/videoconverter")
+async def convert_video(video: UploadFile, format: str = Form("mp4")):
+    input_path = f"/tmp/{video.filename}"
+    output_path = f"/tmp/{os.path.splitext(video.filename)[0]}.{format}"
+    with open(input_path, "wb") as f:
+        f.write(await video.read())
     subprocess.run(["ffmpeg", "-i", input_path, output_path, "-y"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    return output_path
-
-@app.route('/videoconverter', methods=['GET', 'POST'])
-def video_converter():
-    if request.method == 'POST':
-        file = request.files['video']
-        file_format = request.form['format']
-        if file:
-            filename = convert_video(file, file_format)
-            return send_file(filename, as_attachment=True)
-    return render_template_string(TEMPLATE_VIDEO_CONVERTER)
-
-def convert_video(file, file_format):
-    input_path = f"/tmp/{file.filename}"
-    output_path = f"/tmp/{os.path.splitext(file.filename)[0]}.{file_format}"
-    file.save(input_path)
-    subprocess.run(["ffmpeg", "-i", input_path, output_path, "-y"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    return output_path
-
-if __name__ == '__main__':
-    from waitress import serve
-    serve(app, host="0.0.0.0", port=5000)
+    return FileResponse(output_path, filename=os.path.basename(output_path))
